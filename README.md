@@ -10,7 +10,7 @@ worker responsibility
 
 database responsibility
 - Maintain persistence and ensure workers are not suddenly interupted, has the "durable truth"
-- Details of the job, in case worker or API failure, essentially instructions
+- Details of the job, in case worker or API failure, essentially instructions, the payload (things it needs to run like numbers for sum_number())
 
 definition of a job
 - Anything a worker can execute, like recording resizing a image while the ui shows a loading screen
