@@ -70,7 +70,7 @@ def list_all():
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, job_type, payload, status, created_at
+                SELECT id, job_type, payload, status, created_at, result, last_error
                 FROM jobs
                 """
             )
