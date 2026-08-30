@@ -1,6 +1,8 @@
 import time
+from uuid import uuid4
 from psycopg.types.json import Jsonb
 from backend.db import get_connection
+
 
 
 def simulate_work(payload):
@@ -27,7 +29,9 @@ def claim_job():
                 SELECT id, job_type, payload
                 FROM jobs
                 WHERE status = %s
+                ORDER BY created_at
                 LIMIT 1
+                FOR UPDATE SKIP LOCKED
                 """,
                 ("queued", )
             )
@@ -35,6 +39,7 @@ def claim_job():
 
             if job is not None:
                 job_id, job_type, payload = job
+                print(f"Claimed: {job_id}")
                 cursor.execute(
                     """
                     UPDATE jobs
@@ -45,6 +50,65 @@ def claim_job():
                 )
                 return job_id, job_type, payload
             return None
+
+def start_attempt(job_id):
+    with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE jobs
+                    SET attempt_count = attempt_count + 1
+                    WHERE id = %s
+                    RETURNING attempt_count
+                    """,
+                    (job_id,)
+                )
+
+                row = cursor.fetchone()
+
+                if row is None:
+                    raise ValueError("Job not found.")
+
+                attempt_id = uuid4()
+
+                attempt_count = row[0] # ow has been checked ot not have none
+
+                cursor.execute(
+                    """
+                    INSERT INTO job_attempts ( id, job_id, attempt_number)
+                    Values (%s, %s, %s)
+                    """,
+                    (attempt_id, job_id, attempt_count)
+                )
+                return attempt_id # return this since we need other functions to edit those attempts when they succeed or fail, we need ot be ableto find the exact attmept row, this is similar to just returning thr attmept row itself since we can find it later.
+
+def finish_attempt_success(attempt_id):
+    with get_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE job_attempts
+                        SET status = 'succeeded',
+                        finished_at = NOW()
+                        WHERE id = %s
+                        """,
+                        (attempt_id,)
+                    )
+
+def finish_attempt_failure(attempt_id, error):
+    with get_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE job_attempts
+                        SET status = 'failed',
+                            finished_at = NOW(),
+                            error = %s
+                        WHERE id = %s
+                        """,
+                        (error, attempt_id)
+                    )
+
 
 def log_success(job_id, result):
     with get_connection() as connection:
@@ -83,7 +147,7 @@ def run_worker():
             except Exception as error:
                 log_failure(job_id, str(error))
                 continue
-
+ implements this,
             log_success(job_id, Jsonb(result))
 
         else:
