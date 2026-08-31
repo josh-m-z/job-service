@@ -13,12 +13,22 @@ def simulate_work(payload):
 
 def sum_numbers(payload):
     total_sum = sum(payload["numbers"])
-
     return { "result": total_sum }
+
+def fail_tester(payload, attempt_count):
+     fail_first_n = payload["fail_first_n"]
+
+     if attempt_count <= fail_first_n:
+        raise RuntimeError( f"Intentional failure at attempt {attempt_count}")
+
+     return {"result": "Succeeded"}
+
+
 
 HANDLERS = {
     "simulate_work": simulate_work,
-    "sum_numbers": sum_numbers
+    "sum_numbers": sum_numbers,
+    "fail_then_succeed": fail_tester
     } # full caps this is a constant, doesnt change
 
 def claim_job():
@@ -26,9 +36,10 @@ def claim_job():
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, job_type, payload
+                SELECT id, job_type, payload, max_attempts, attempt_count
                 FROM jobs
                 WHERE status = %s
+                AND attempt_count < max_attempts
                 ORDER BY created_at
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
@@ -38,7 +49,7 @@ def claim_job():
             job = cursor.fetchone()
 
             if job is not None:
-                job_id, job_type, payload = job
+                job_id, job_type, payload, max_attempts, attempt_count = job
                 print(f"Claimed: {job_id}")
                 cursor.execute(
                     """
@@ -48,7 +59,7 @@ def claim_job():
                     """,
                     (job_id, )
                 )
-                return job_id, job_type, payload
+                return job_id, job_type, payload, max_attempts, attempt_count
             return None
 
 def start_attempt(job_id):
@@ -80,7 +91,7 @@ def start_attempt(job_id):
                     """,
                     (attempt_id, job_id, attempt_count)
                 )
-                return attempt_id # return this since we need other functions to edit those attempts when they succeed or fail, we need ot be ableto find the exact attmept row, this is similar to just returning thr attmept row itself since we can find it later.
+                return attempt_id, attempt_count # return this since we need other functions to edit those attempts when they succeed or fail, we need ot be ableto find the exact attmept row, this is similar to just returning thr attmept row itself since we can find it later.
 
 def finish_attempt_success(attempt_id):
     with get_connection() as connection:
@@ -134,21 +145,48 @@ def log_failure(job_id, failure):
                 ("failed", failure, None, job_id)
             )
 
+def requeue_job(job_id, error):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE jobs
+                SET status = 'queued', last_error = %s
+                WHERE id = %s
+                """,
+                (error, job_id)
+            ) # lasT_error must be preserved
 
 
 def run_worker():
     while True:
         job = claim_job()
+
         if job is not None:
-            job_id, job_type, payload = job
-            try:
-                handler = HANDLERS[job_type] # could have keyeerror, thats a job execution fialure
-                result = handler(payload)
-            except Exception as error:
-                log_failure(job_id, str(error))
-                continue
- implements this,
-            log_success(job_id, Jsonb(result))
+            job_id, job_type, payload, max_attempts, attempt_count = job
+
+
+            if attempt_count < max_attempts:
+                attempt_id, attempt_count = start_attempt(job_id)
+                try:
+                    handler = HANDLERS[job_type] # could have keyeerror, thats a job execution fialure
+                    if job_type == "fail_then_succeed":
+                        result = handler(payload, attempt_count)
+                    else:
+                        result = handler(payload)
+
+                except Exception as error:
+                    finish_attempt_failure(attempt_id, str(error)) # happens no matter what, invariant
+
+                    if attempt_count >= max_attempts:
+                        log_failure(job_id, str(error))
+                    else:
+                        requeue_job(job_id, str(error))
+                    continue
+                else:
+                    finish_attempt_success(attempt_id)
+                    log_success(job_id, Jsonb(result))
+
 
         else:
             time.sleep(1) # waits for a queued status to exists
