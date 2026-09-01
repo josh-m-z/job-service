@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS jobs (
     id UUID PRIMARY KEY,
+    worker_id UUID,
     job_type TEXT NOT NULL,
     payload JSONB NOT NULL,
     status TEXT NOT NULL,
@@ -7,7 +8,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     attempt_count INTEGER NOT NULL DEFAULT 0,
     max_attmepts INTEGER NOT NULL DEFAULT 3,
     result JSONB,
-    last_error TEXT
+    last_error TEXT,
+    lease_expires_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS job_attempts (
