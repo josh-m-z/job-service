@@ -5,6 +5,7 @@ from typing import Literal
 class JobCreate(BaseModel):
     job_type: Literal["simulate_work", "sum_numbers", "fail_then_succeed"] # expect specific job types
     payload: dict
+    idempotency_key: str | None = None
 
     @model_validator(mode="after") # a model checker for the recently created object, checks more specific requirments
     def validate_payload(self): # self becomes job object

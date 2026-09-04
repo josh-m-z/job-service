@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     max_attmepts INTEGER NOT NULL DEFAULT 3,
     result JSONB,
     last_error TEXT,
-    lease_expires_at TIMESTAMPTZ
+    lease_expires_at TIMESTAMPTZ,
+    idemptency_key TEXT UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS job_attempts (

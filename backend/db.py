@@ -7,9 +7,6 @@ from psycopg.types.json import Jsonb
 from uuid import uuid4
 
 schema = Path(__file__).with_name("schema.sql").read_text()
-
-
-
 load_dotenv(".env")
 
 database_url = os.getenv("DATABASE_URL")
@@ -31,20 +28,18 @@ def initialize_database():
     connection.commit()
     connection.close()
 
-def create_job(job_type, payload):
-
+def create_job(job_type, payload, idempotency_key=None):
     job_id = uuid4()
-
     # Context manager on normal exit does the commit + close, on excpeton it does it as well
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO jobs (id, job_type, payload, status)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id, job_type, payload, status, created_at;
+                INSERT INTO jobs (id, job_type, payload, status, idempotency_key)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id, job_type, payload, status, created_at, idempotency_key;
                 """,
-                (job_id, job_type, Jsonb(payload), "queued")
+                (job_id, job_type, Jsonb(payload), "queued", idempotency_key)
             )
             # new syntax, RETURNING ... ensures that these things are returned
             created_job = cursor.fetchone()
@@ -63,7 +58,23 @@ def find_job(job_id):
                 )
 
                 job = cursor.fetchone()
+
                 return job
+
+def get_job_by_idempotency_key(idempotency_key):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT (id, job_type, payload, status, created_at, idempotency_key)
+                FROM jobs
+                WHERE idempotency_key = %s
+                """,
+                (idempotency_key, )
+                )
+
+            job = cursor.fetchone()
+            return job
 
 def list_all():
     with get_connection() as connection:
