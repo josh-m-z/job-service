@@ -66,7 +66,7 @@ def get_job_by_idempotency_key(idempotency_key):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT (id, job_type, payload, status, created_at, idempotency_key)
+                SELECT job_type, payload
                 FROM jobs
                 WHERE idempotency_key = %s
                 """,
