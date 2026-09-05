@@ -10,10 +10,11 @@ from backend.worker import (
     finish_attempt_failure,
     log_success,
     log_failure,
+    requeue_job
 )
 
-@celery_app.task
-def execute_job(job_id):
+@celery_app.task(bind=True, max_retries=None) # passes taks context into first paramter
+def execute_job(self, job_id):
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -50,12 +51,21 @@ def execute_job(job_id):
             result = handler(payload, attempt_count)
         else:
             result = handler(payload)
-
     except Exception as error:
+        print("ENTERED RETRY BRANCH")
         finish_attempt_failure(attempt_id, str(error))
-        log_failure(job_id, str(error))
-        raise
+        if attempt_count < max_attempts:
+            requeue_job(job_id, str(error))
+
+            raise self.retry(
+                exc=error,
+                countdown=5
+            )
+        else:
+            log_failure(job_id, str(error))
 
     else:
         finish_attempt_success(attempt_id)
         log_success(job_id, Jsonb(result))
+
+
