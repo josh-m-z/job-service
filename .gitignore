@@ -1,3 +1,6 @@
 .env
 */__pycache__/
 backend/routes/__pycache__/jobs.cpython-314.pyc
+uploads/
+.DS_Store
+test_files/

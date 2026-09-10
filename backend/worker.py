@@ -2,6 +2,7 @@ import time
 from uuid import uuid4
 from psycopg.types.json import Jsonb
 from backend.db import get_connection
+from backend.document_processor import process_document
 
 # id made before any loops so that the id stays the same, used to track the worker
 WORKER_ID = uuid4()
@@ -24,7 +25,8 @@ def fail_tester(payload, attempt_count):
 HANDLERS = {
     "simulate_work": simulate_work,
     "sum_numbers": sum_numbers,
-    "fail_then_succeed": fail_tester
+    "fail_then_succeed": fail_tester,
+    "process_document": process_document
     } # full caps this is a constant, doesnt change
 
 
@@ -85,6 +87,20 @@ def recover_stale_job(cursor, job):
             ('Lease expired.', None, job_id)
         )
         return None
+def mark_interrupted_attempt(job_id):
+    with get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE job_attempts
+                    SET
+                        status = 'failed',
+                        finished_at = NOW(),
+                        error = 'Worker lost during execution'
+                    WHERE job_id = %s AND status = 'running'
+                    """,
+                    (job_id, )
+                )
 
 def claim_job():
     with get_connection() as connection:
@@ -208,7 +224,7 @@ def requeue_job(job_id, error):
                 """
                 UPDATE jobs
                 SET status = 'queued', last_error = %s
-                WHERE id = %s
+                WHERE id = %s AND status = 'running'
                 """,
                 (error, job_id)
             ) # lasT_error must be preserved

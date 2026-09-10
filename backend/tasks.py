@@ -10,16 +10,22 @@ from backend.worker import (
     finish_attempt_failure,
     log_success,
     log_failure,
-    requeue_job
+    requeue_job,
+    mark_interrupted_attempt
 )
 
-@celery_app.task(bind=True, max_retries=None) # passes taks context into first paramter
+@celery_app.task(bind=True,
+                 max_retries=None,
+                 acks_late=True,
+                 reject_on_worker_lost=True,
+                 soft_time_limit=5,
+                 time_limit=8,) # passes taks context into first paramter
 def execute_job(self, job_id):
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT job_type, payload, max_attempts, attempt_count
+                SELECT job_type, payload, status, max_attempts, attempt_count
                 FROM jobs
                 WHERE id = %s
                 """,
@@ -31,18 +37,30 @@ def execute_job(self, job_id):
             if job is None:
                 raise ValueError("Job not found.")
 
-            job_type, payload, max_attempts, attempt_count = job
+            job_type, payload, status, max_attempts, attempt_count = job
+
+            if status == "cancelled":
+                return
+
+            if self.request.delivery_info.get("redelivered", False):
+                mark_interrupted_attempt(job_id)
+                requeue_job(job_id, "cleanup dead running state")
 
             cursor.execute(
                 """
                 UPDATE jobs
                 SET status = 'running'
-                WHERE id = %s
+                WHERE id = %s AND status = 'queued'
                 """,
                 (job_id,)
             )
+            # if this is a redeivery then close the previosu one as interrupted, this code ony happens when execution is happening so it makes sense that what follows is another attempt
+            if cursor.rowcount == 0:
+                return
 
-    attempt_id, attempt_count = start_attempt(job_id)
+
+
+    attempt_id, attempt_count = start_attempt(job_id) # this cuased a big bug, make sure comits are done at the right times, must wait for
 
     try:
         handler = HANDLERS[job_type]
@@ -59,7 +77,7 @@ def execute_job(self, job_id):
 
             raise self.retry(
                 exc=error,
-                countdown=5
+                countdown=20
             )
         else:
             log_failure(job_id, str(error))

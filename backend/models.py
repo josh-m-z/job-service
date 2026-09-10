@@ -1,11 +1,14 @@
 from pydantic import BaseModel, model_validator
 from typing import Literal
+from uuid import UUID
 
 
 class JobCreate(BaseModel):
-    job_type: Literal["simulate_work", "sum_numbers", "fail_then_succeed"] # expect specific job types
+
+    job_type: Literal["simulate_work", "sum_numbers", "fail_then_succeed", "process_document"]
     payload: dict
     idempotency_key: str | None = None
+
 
     @model_validator(mode="after") # a model checker for the recently created object, checks more specific requirments
     def validate_payload(self): # self becomes job object
@@ -57,6 +60,14 @@ class JobCreate(BaseModel):
                 raise ValueError(
                     "'fail_first_n' must be >= 0"
                 )
+        elif self.job_type == "process_document":
+            if set(self.payload.keys()) != {"document_id"}: # checks the keys specifically instead of seeing if something is merely in it
+                raise ValueError("process_document payload must contain only document_id")
 
+            document_id = self.payload["document_id"]
+            try:
+                UUID(str(document_id)) # UUID tries ot parse string as UUID, if not, vlaue erro and we knw it's not a UUID
+            except ValueError:
+                raise ValueError("document_id must be a valid UUID")
 
         return self
