@@ -119,16 +119,16 @@ def list_all():
 # --------------------
 # Document Section
 # --------------------
-def insert_document(document_id, filename, content_type, file_path):
+def insert_document(document_id, filename, content_type, file_path, batch_id=None):
     with get_connection() as connecton:
         with connecton.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO documents (id, filename, content_type, file_path)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO documents (id, filename, content_type, file_path, batch_id)
+                VALUES (%s, %s, %s, %s, %s)
                 RETURNING *;
                 """,
-                (document_id, filename, content_type, str(file_path))
+                (document_id, filename, content_type, str(file_path), batch_id)
             ) # RETURNING * returns all cols of the row, inclduing ones we didnt write in liek created_at
 
             return cursor.fetchone()
@@ -164,7 +164,8 @@ def save_document_result(
     text,
     page_count,
     word_count,
-    character_count
+    character_count,
+    extracted_data
 ):
     with get_connection() as connection:
         with connection.cursor() as cursor:
@@ -175,9 +176,10 @@ def save_document_result(
                     text,
                     page_count,
                     word_count,
-                    character_count
+                    character_count,
+                    extracted_data
                 )
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s)
 
                 ON CONFLICT (document_id)
                 DO UPDATE SET
@@ -185,14 +187,16 @@ def save_document_result(
                     page_count = EXCLUDED.page_count,
                     word_count = EXCLUDED.word_count,
                     character_count = EXCLUDED.character_count,
-                    processed_at = NOW();
+                    processed_at = NOW(),
+                    extracted_data = EXCLUDED.extracted_data;
                 """,
                 (
                     document_id,
                     text,
                     page_count,
                     word_count,
-                    character_count
+                    character_count,
+                    Jsonb(extracted_data)
                 )
             )
 
@@ -210,3 +214,46 @@ def get_document_result(document_id):
             )
 
             return cursor.fetchone()
+
+# Batches
+# just needs to store a uuid, since the documets are linked together by this id
+def insert_batch(batch_id):
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO batches (id)
+                VALUES (%s)
+                RETURNING *;
+                """,
+                (batch_id,)
+            )
+
+            return cursor.fetchone()
+
+
+
+def get_batch_documents(batch_id):
+
+    with get_connection() as connection:
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    d.id,
+                    d.filename,
+                    j.status,
+                    j.attempt_count,
+                    j.last_error
+                FROM documents d
+                LEFT JOIN jobs j
+                    ON j.job_type = 'process_document'
+                    AND j.payload->>'document_id' = d.id::text
+                WHERE d.batch_id = %s;
+                """,
+                (batch_id,)
+            )
+
+            return cursor.fetchall()

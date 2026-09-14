@@ -11,13 +11,17 @@ from backend.db import (
     cancel_job,
     insert_document,
     delete_document,
-    get_document_result)
+    get_document_result,
+    insert_batch,
+    get_batch_documents)
 
 from uuid import uuid4
 from pathlib import Path
 
-
 router = APIRouter()
+
+UPLOAD_DIR = Path("uploads") # uppercase bc constant
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @router.post("/jobs")
 def create_jobs(job: JobCreate): # job object sent in
@@ -82,6 +86,8 @@ await file.read()
 # ------------------
 # Document Section
 # ------------------
+
+
 @router.post("/documents") # adds and processes a document, uses the job post fucntion
 async def create_documents(file: UploadFile = File(...)):
     if file.content_type != "application/pdf":
@@ -91,9 +97,6 @@ async def create_documents(file: UploadFile = File(...)):
             "PDF files are supported"
         )
     document_id = uuid4()
-
-    UPLOAD_DIR = Path("uploads") # uppercase bc constant
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     file_path = UPLOAD_DIR / f"{document_id}.pdf" # the / here means join paths, like uploads/abc.pdf. This makes the file path linked to the uploads dir
 
@@ -128,4 +131,120 @@ def read_document_result(document_id: UUID):
             detail="Document result not found"
         )
 
-    return result # reuslts comes for mthe doc reusls table, not the jobs executions, this is more direct and makes more sense 
+    return result # reuslts comes for mthe doc reusls table, not the jobs executions, this is more direct and makes more sense
+
+@router.post("/batches")
+async def create_batch(files: list[UploadFile] = File(...)):
+    # checks if the files are all pdfs
+    accepted = []
+    rejected = []
+    batch_id = uuid4()
+    batch = insert_batch(batch_id)
+
+    # rejected list if not pdf
+    for file in files:
+        if file.content_type != "application/pdf":
+            rejected.append({
+                "file_name": file.filename,
+                "error": "File must be a PDF"
+            })
+            continue
+
+        try:
+            document_id = uuid4()
+            file_path = UPLOAD_DIR / f"{document_id}.pdf"
+
+            contents = await file.read()
+
+            with open(file_path, "wb") as f:
+                f.write(contents)
+
+            document = insert_document(
+                document_id,
+                file.filename,
+                file.content_type,
+                file_path,
+                batch_id
+            )
+
+            job = create_job(
+                "process_document",
+                {"document_id": str(document_id)},
+                idempotency_key=None
+            )
+
+            accepted.append({
+                "document": document,
+                "job": job
+            })
+
+        except Exception as error:
+            # at this point, files have been written so must delete them and unlink and append to rejected
+            delete_document(document_id)
+            file_path.unlink(missing_ok=True)
+            rejected.append({
+                "file_name": file.filename,
+                "error": str(error)
+            })
+
+
+    # batch is ust a uuid and created, but by returning it like this they are grouped, and hte documents share the bath id
+    return {
+    "batch": batch,
+    "accepted": accepted,
+    "rejected": rejected
+}
+
+@router.get("/batches/{batch_id}")
+
+def get_batch_status(batch_id: UUID):
+    documents = get_batch_documents(batch_id)
+    queued = 0
+    running = 0
+    succeeded = 0
+    failed = 0
+    batch_status = "processing"
+
+    document_list = []
+
+    for document in documents:
+
+        document_id, filename, status, attempt_count, last_error = document
+
+        if status == "queued":
+            queued += 1
+        elif status == "running":
+            running += 1
+        elif status == "succeeded":
+            succeeded += 1
+        elif status == "failed":
+            failed += 1
+
+        document_list.append({
+
+            "document_id": document_id,
+            "filename": filename,
+            "status": status,
+            "attempt_count": attempt_count,
+            "last_error": last_error
+        })
+
+    # after adding all the statuses of the curent state, then reort the overal branch state by checking if there are queued, or running, and if not, then if there are fialed explcilty mention thati t completed but with fiaures
+    if queued > 0 or running > 0:
+        batch_status = "processing"
+    elif failed > 0:
+        batch_status = "completed_with_failures"
+    else:
+        batch_status = "completed"
+
+    return {
+        "batch_id": batch_id,
+        "total": len(documents),
+        "queued": queued,
+        "running": running,
+        "succeeded": succeeded,
+        "failed": failed,
+        "documents": document_list,
+        "status": batch_status
+
+    }

@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS documents (
     filename TEXT NOT NULL,
     content_type TEXT NOT NULL,
     file_path TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    batches UUID REFERENCES batches(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS document_results (
@@ -46,5 +47,11 @@ CREATE TABLE IF NOT EXISTS document_results (
     page_count INTEGER NOT NULL,
     word_count INTEGER NOT NULL,
     character_count INTEGER NOT NULL,
-    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    extracted_data JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS batches (
+    id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
