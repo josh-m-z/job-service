@@ -206,7 +206,7 @@ def get_document_result(document_id):
             cursor.execute(
                 """
                 SELECT document_id, text, page_count,
-                       word_count, character_count, processed_at
+                       word_count, character_count, processed_at, extraced_data
                 FROM document_results
                 WHERE document_id = %s;
                 """,
@@ -251,6 +251,29 @@ def get_batch_documents(batch_id):
                 LEFT JOIN jobs j
                     ON j.job_type = 'process_document'
                     AND j.payload->>'document_id' = d.id::text
+                WHERE d.batch_id = %s;
+                """,
+                (batch_id,)
+            )
+
+            return cursor.fetchall()
+
+def get_batch_results(batch_id):
+
+    with get_connection() as connection:
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    d.id,
+                    d.filename,
+                    r.page_count,
+                    r.extracted_data
+                FROM documents d
+                LEFT JOIN document_results r
+                    ON r.document_id = d.id
                 WHERE d.batch_id = %s;
                 """,
                 (batch_id,)

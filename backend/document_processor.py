@@ -2,7 +2,7 @@ from pypdf import PdfReader
 
 from backend.db import get_document, save_document_result
 
-# using regex to extract basic data, it's more of a way to recognize local tet patterns, expected 
+# using regex to extract basic data, it's more of a way to recognize local tet patterns, expected
 import re
 
 
@@ -26,6 +26,11 @@ def extract_document_data(text):
         text
     )
 
+    organizations = re.findall(
+    r"(?m)^[A-Z][A-Za-z0-9 &.'-]+(?:LLC|Inc\.?|Corp\.?|Corporation|Ltd\.?)$",
+    text
+)
+
     lowered_text = text.lower()
 
     if "invoice" in lowered_text:
@@ -44,7 +49,8 @@ def extract_document_data(text):
         "document_type": document_type,
         "title": title,
         "dates": dates,
-        "money_amounts": money_amounts
+        "money_amounts": money_amounts,
+        "organizations": organizations
     }
 
 
@@ -64,8 +70,7 @@ def process_document(payload):
 
     for page in reader.pages:
         text += page.extract_text() or "" # the or is in case there is no extectable text in the pdf
-
-    extracted_data = extract_document_data(text)
+        extracted_data = extract_document_data(text)
 
     page_count = len(reader.pages)
     word_count = len(text.split())

@@ -13,7 +13,8 @@ from backend.db import (
     delete_document,
     get_document_result,
     insert_batch,
-    get_batch_documents)
+    get_batch_documents,
+    get_batch_results)
 
 from uuid import uuid4
 from pathlib import Path
@@ -198,7 +199,9 @@ async def create_batch(files: list[UploadFile] = File(...)):
 @router.get("/batches/{batch_id}")
 
 def get_batch_status(batch_id: UUID):
+    # immediete statuses
     documents = get_batch_documents(batch_id)
+    results = get_batch_results(batch_id)
     queued = 0
     running = 0
     succeeded = 0
@@ -206,6 +209,13 @@ def get_batch_status(batch_id: UUID):
     batch_status = "processing"
 
     document_list = []
+
+    total_pages = 0
+    document_types = {}
+    dates = []
+    money_amounts = []
+    titles = []
+    organizations = []
 
     for document in documents:
 
@@ -220,6 +230,7 @@ def get_batch_status(batch_id: UUID):
         elif status == "failed":
             failed += 1
 
+        # keep note of all the docs
         document_list.append({
 
             "document_id": document_id,
@@ -228,6 +239,29 @@ def get_batch_status(batch_id: UUID):
             "attempt_count": attempt_count,
             "last_error": last_error
         })
+
+    for result in results:
+        document_id, filename, page_count, extracted_data = result
+
+        if page_count is not None:
+            page_count += 1
+        if extracted_data is None:
+            continue
+
+        document_type = extracted_data.get["document_type"]
+        title = extracted_data.get("title")
+        if title:
+            titles.append(title)
+
+        if document_type:
+            document_types[document_type] = document_types.get(document_type, 0) + 1
+            # treeive the current num in the key value pair, if doesnt exist then return 0 and add 1 (intilize the ocunt essentially)
+
+        dates.extend(extracted_data.get("dates", []))
+                # extend is how to add a item indiviuslaly to a existing list, append would jsut append a new list
+        money_amounts.extend(extracted_data.get("money_amounts", []))
+        organizations.extend(extracted_data.get("organizations", [])
+)
 
     # after adding all the statuses of the curent state, then reort the overal branch state by checking if there are queued, or running, and if not, then if there are fialed explcilty mention thati t completed but with fiaures
     if queued > 0 or running > 0:
@@ -245,6 +279,11 @@ def get_batch_status(batch_id: UUID):
         "succeeded": succeeded,
         "failed": failed,
         "documents": document_list,
-        "status": batch_status
-
+        "status": batch_status,
+        "total_pages": total_pages,
+        "document_types": document_types,
+        "titles": titles,
+        "dates": dates,
+        "money_amounts": money_amounts,
+        "organizations": organizations
     }
