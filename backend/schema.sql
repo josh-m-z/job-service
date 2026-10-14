@@ -32,16 +32,6 @@ CREATE TABLE IF NOT EXISTS outbox_events (
     published_at TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS document_results (
-    document_id UUID PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
-    text TEXT NOT NULL,
-    page_count INTEGER NOT NULL,
-    word_count INTEGER NOT NULL,
-    character_count INTEGER NOT NULL,
-    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    extracted_data JSONB NOT NULL DEFAULT '{}'::jsonb
-);
-
 CREATE TABLE IF NOT EXISTS batches (
     id UUID PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -54,6 +44,16 @@ CREATE TABLE IF NOT EXISTS documents (
     file_path TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     batch_id UUID REFERENCES batches(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS document_results (
+    document_id UUID PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    page_count INTEGER NOT NULL,
+    word_count INTEGER NOT NULL,
+    character_count INTEGER NOT NULL,
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    extracted_data JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_batch_id

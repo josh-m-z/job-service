@@ -244,11 +244,11 @@ def get_batch_status(batch_id: UUID):
         document_id, filename, page_count, extracted_data = result
 
         if page_count is not None:
-            page_count += 1
+            total_pages += 1
         if extracted_data is None:
             continue
 
-        document_type = extracted_data.get["document_type"]
+        document_type = extracted_data.get("document_type")
         title = extracted_data.get("title")
         if title:
             titles.append(title)
