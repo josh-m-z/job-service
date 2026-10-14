@@ -6,11 +6,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     status TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     attempt_count INTEGER NOT NULL DEFAULT 0,
-    max_attmepts INTEGER NOT NULL DEFAULT 3,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
     result JSONB,
     last_error TEXT,
     lease_expires_at TIMESTAMPTZ,
-    idemptency_key TEXT UNIQUE
+    idempotency_key TEXT UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS job_attempts (
@@ -32,15 +32,6 @@ CREATE TABLE IF NOT EXISTS outbox_events (
     published_at TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS documents (
-    id UUID PRIMARY KEY,
-    filename TEXT NOT NULL,
-    content_type TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    batches UUID REFERENCES batches(id) ON DELETE SET NULL
-);
-
 CREATE TABLE IF NOT EXISTS document_results (
     document_id UUID PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
     text TEXT NOT NULL,
@@ -55,3 +46,21 @@ CREATE TABLE IF NOT EXISTS batches (
     id UUID PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS documents (
+    id UUID PRIMARY KEY,
+    filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    batch_id UUID REFERENCES batches(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_batch_id
+ON documents(batch_id);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_process_document_id
+ON jobs ((payload->>'document_id'))
+WHERE job_type = 'process_document';
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs(status, created_at DESC)

@@ -6,8 +6,9 @@ from typing import cast, LiteralString
 from psycopg.types.json import Jsonb
 from uuid import uuid4
 
-schema = Path(__file__).with_name("schema.sql").read_text()
-load_dotenv(".env")
+backend_dir = Path(__file__).resolve().parent
+schema = backend_dir.joinpath("schema.sql").read_text()
+load_dotenv(backend_dir.parent / ".env")
 
 database_url = os.getenv("DATABASE_URL")
 
@@ -206,7 +207,7 @@ def get_document_result(document_id):
             cursor.execute(
                 """
                 SELECT document_id, text, page_count,
-                       word_count, character_count, processed_at, extraced_data
+                       word_count, character_count, processed_at, extracted_data
                 FROM document_results
                 WHERE document_id = %s;
                 """,
@@ -239,18 +240,26 @@ def get_batch_documents(batch_id):
 
         with connection.cursor() as cursor:
 
+            # looks up now instead of trying to join them first
             cursor.execute(
                 """
                 SELECT
                     d.id,
                     d.filename,
-                    j.status,
-                    j.attempt_count,
-                    j.last_error
+                    job_info.status,
+                    job_info.attempt_count,
+                    job_info.last_error
                 FROM documents d
-                LEFT JOIN jobs j
-                    ON j.job_type = 'process_document'
+                LEFT JOIN LATERAL (
+                    SELECT
+                        j.status,
+                        j.attempt_count,
+                        j.last_error
+                    FROM jobs j
+                    WHERE j.job_type = 'process_document'
                     AND j.payload->>'document_id' = d.id::text
+                    LIMIT 1
+                ) job_info ON TRUE
                 WHERE d.batch_id = %s;
                 """,
                 (batch_id,)
